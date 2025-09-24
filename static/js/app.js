@@ -7,6 +7,7 @@ class JupyterWebApp {
         this.originalFileType = null; // 'python' or 'notebook'
         this.originalFilename = null;
         this.originalFilePath = null; // Store the full path with directory
+        this.scheduledTasks = []; // Store scheduled tasks
         this.initializeApp();
     }
 
@@ -17,6 +18,7 @@ class JupyterWebApp {
         this.setupFileSystem();
         this.updateKernelStatus();
         this.startAutoSave();
+        this.startScheduler();
     }
 
     setupNavigation() {
@@ -114,6 +116,9 @@ class JupyterWebApp {
                 break;
             case 'files':
                 this.refreshFileTree();
+                break;
+            case 'scheduler':
+                this.initializeScheduler();
                 break;
             case 'terminal':
                 setTimeout(() => {
@@ -406,6 +411,24 @@ class JupyterWebApp {
             case 'html': return 'fa-file-code';
             case 'css': return 'fa-file-code';
             case 'js': return 'fa-file-code';
+            // Office files
+            case 'xlsx': case 'xls': return 'fa-file-excel';
+            case 'docx': case 'doc': return 'fa-file-word';
+            case 'pptx': case 'ppt': return 'fa-file-powerpoint';
+            case 'pdf': return 'fa-file-pdf';
+            // Data files
+            case 'csv': return 'fa-file-csv';
+            case 'xml': return 'fa-file-code';
+            case 'yaml': case 'yml': return 'fa-file-code';
+            // Image files
+            case 'jpg': case 'jpeg': case 'png': case 'gif': case 'bmp': case 'svg': return 'fa-file-image';
+            // Audio/Video
+            case 'mp3': case 'wav': case 'ogg': return 'fa-file-audio';
+            case 'mp4': case 'avi': case 'mov': case 'mkv': return 'fa-file-video';
+            // Archive files
+            case 'zip': case 'rar': case '7z': case 'tar': case 'gz': return 'fa-file-archive';
+            // Database files
+            case 'db': case 'sqlite': case 'sql': return 'fa-database';
             default: return 'fa-file';
         }
     }
@@ -665,11 +688,14 @@ print(f"Sum: {sum(data)}")`;
     openFileUpload() {
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.ipynb,.py,.txt,.md';
+        input.accept = '.ipynb,.py,.txt,.md,.json,.csv,.html,.css,.js,.xml,.yml,.yaml';
         input.multiple = true;
         
         input.onchange = (e) => {
             const files = Array.from(e.target.files);
+            if (files.length > 0) {
+                this.showNotification(`Uploading ${files.length} file(s)...`, 'info');
+            }
             files.forEach(file => {
                 this.handleFileUpload(file);
             });
@@ -681,24 +707,84 @@ print(f"Sum: {sum(data)}")`;
     handleFileUpload(file) {
         const reader = new FileReader();
         
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
             try {
-                if (file.name.endsWith('.ipynb')) {
-                    // Load Jupyter notebook
-                    const notebookData = JSON.parse(e.target.result);
-                    this.loadNotebook(notebookData);
-                } else {
-                    // Load as text file
-                    this.loadTextFile(file.name, e.target.result);
+                const content = e.target.result;
+                
+                // First, save the file to the server
+                try {
+                    const response = await fetch('http://localhost:5000/api/files/save', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            filename: file.name,
+                            content: content
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        this.showNotification(`File '${file.name}' uploaded and saved successfully!`, 'success');
+                        
+                        // Refresh file tree to show the new file
+                        setTimeout(() => this.refreshFileTree(), 500);
+                        
+                        // Now load the file into the editor
+                        if (file.name.endsWith('.ipynb')) {
+                            // Load Jupyter notebook
+                            const notebookData = JSON.parse(content);
+                            this.loadNotebook(notebookData);
+                            this.originalFileType = 'notebook';
+                        } else {
+                            // Load as text file
+                            this.loadTextFile(file.name, content);
+                            this.originalFileType = 'python';
+                        }
+                        
+                        // Set file tracking info
+                        this.originalFilename = file.name;
+                        this.originalFilePath = file.name;
+                        this.fileLoaded = true;
+                        
+                        // Update notebook info
+                        this.updateNotebookInfo(file.name);
+                        
+                        // Switch to notebook tab
+                        document.querySelector('[data-section="notebook"]').click();
+                        
+                    } else {
+                        throw new Error(result.error);
+                    }
+                } catch (serverError) {
+                    // If server save fails, just load into editor (old behavior)
+                    console.warn('Server save failed, loading into editor only:', serverError);
+                    
+                    if (file.name.endsWith('.ipynb')) {
+                        const notebookData = JSON.parse(content);
+                        this.loadNotebook(notebookData);
+                    } else {
+                        this.loadTextFile(file.name, content);
+                    }
+                    
+                    this.showNotification(`File '${file.name}' loaded into editor (save failed: ${serverError.message})`, 'warning');
                 }
                 
-                this.showNotification(`File '${file.name}' uploaded successfully!`, 'success');
             } catch (error) {
-                this.showNotification(`Error loading file '${file.name}': ${error.message}`, 'error');
+                this.showNotification(`Error processing file '${file.name}': ${error.message}`, 'error');
             }
         };
         
-        reader.readAsText(file);
+        // Handle different file types appropriately
+        if (file.name.endsWith('.ipynb') || file.name.endsWith('.py') || file.name.endsWith('.txt') || 
+            file.name.endsWith('.md') || file.name.endsWith('.json') || file.name.endsWith('.csv')) {
+            reader.readAsText(file);
+        } else {
+            // For binary files, we might want to handle differently
+            this.showNotification(`File type not supported for editing: ${file.name}`, 'warning');
+        }
     }
 
     updateNotebookInfo(filename = null, cellCount = null) {
@@ -881,6 +967,504 @@ print(f"Sum: {sum(data)}")`;
                 }
             }
         }, 5 * 60 * 1000); // 5 minutes
+    }
+
+    // ================================
+    // SCHEDULER METHODS
+    // ================================
+
+    initializeScheduler() {
+        console.log('Initializing scheduler...');
+        this.setupSchedulerEventListeners();
+        this.loadAvailableFiles();
+        this.loadScheduledTasks();
+        this.updateTasksList();
+    }
+
+    setupSchedulerEventListeners() {
+        // Create Task button
+        const createTaskBtn = document.getElementById('createTask');
+        if (createTaskBtn) {
+            createTaskBtn.addEventListener('click', () => this.showTaskForm());
+        }
+
+        // Cancel Task button
+        const cancelTaskBtn = document.getElementById('cancelTask');
+        if (cancelTaskBtn) {
+            cancelTaskBtn.addEventListener('click', () => this.hideTaskForm());
+        }
+
+        // Task form submission
+        const taskForm = document.getElementById('taskForm');
+        if (taskForm) {
+            taskForm.addEventListener('submit', (e) => this.handleTaskSubmit(e));
+        }
+
+        // Schedule type change
+        const scheduleTypeSelect = document.getElementById('scheduleType');
+        if (scheduleTypeSelect) {
+            scheduleTypeSelect.addEventListener('change', (e) => this.updateScheduleConfig(e.target.value));
+            // Initialize with default value
+            this.updateScheduleConfig('interval');
+        }
+
+        // Clear logs button
+        const clearLogsBtn = document.getElementById('clearLogs');
+        if (clearLogsBtn) {
+            clearLogsBtn.addEventListener('click', () => this.clearLogs());
+        }
+
+        // Refresh logs button
+        const refreshLogsBtn = document.getElementById('refreshLogs');
+        if (refreshLogsBtn) {
+            refreshLogsBtn.addEventListener('click', () => this.refreshLogs());
+        }
+    }
+
+    async loadAvailableFiles() {
+        try {
+            const notebookSelect = document.getElementById('taskNotebook');
+            if (!notebookSelect) return;
+            
+            notebookSelect.innerHTML = '<option value="">Select a file...</option>';
+            
+            // Get all files recursively
+            await this.addFilesToDropdown('', notebookSelect);
+            
+        } catch (error) {
+            console.error('Error loading files:', error);
+        }
+    }
+    
+    async addFilesToDropdown(path, selectElement) {
+        try {
+            const url = path ? 
+                `http://localhost:5000/api/files/folder?path=${encodeURIComponent(path)}` : 
+                'http://localhost:5000/api/files';
+                
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.success && data.files) {
+                for (const file of data.files) {
+                    if (file.type === 'file' && (file.name.endsWith('.py') || file.name.endsWith('.ipynb'))) {
+                        // Add executable files to dropdown
+                        const option = document.createElement('option');
+                        option.value = file.path;
+                        option.textContent = file.path;
+                        selectElement.appendChild(option);
+                    } else if (file.type === 'folder') {
+                        // Recursively load files from subfolders
+                        await this.addFilesToDropdown(file.path, selectElement);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error loading files from path:', path, error);
+        }
+    }
+
+    showTaskForm() {
+        const container = document.getElementById('taskFormContainer');
+        if (container) {
+            container.style.display = 'block';
+        }
+    }
+
+    hideTaskForm() {
+        const container = document.getElementById('taskFormContainer');
+        if (container) {
+            container.style.display = 'none';
+        }
+        // Reset form
+        const form = document.getElementById('taskForm');
+        if (form) {
+            form.reset();
+        }
+    }
+
+    updateScheduleConfig(scheduleType) {
+        const configContainer = document.getElementById('scheduleConfig');
+        if (!configContainer) return;
+
+        let configHTML = '';
+
+        switch (scheduleType) {
+            case 'interval':
+                configHTML = `
+                    <div class="schedule-row">
+                        <label>Repeat every:</label>
+                        <input type="number" id="intervalValue" min="1" value="30" required>
+                        <select id="intervalUnit" required>
+                            <option value="minutes">Minutes</option>
+                            <option value="hours">Hours</option>
+                        </select>
+                    </div>
+                `;
+                break;
+
+            case 'daily':
+                configHTML = `
+                    <div class="schedule-row">
+                        <label>Time:</label>
+                        <input type="time" id="dailyTime" value="09:00" required>
+                    </div>
+                `;
+                break;
+
+            case 'weekly':
+                configHTML = `
+                    <div class="schedule-row">
+                        <label>Day:</label>
+                        <select id="weeklyDay" required>
+                            <option value="1">Monday</option>
+                            <option value="2">Tuesday</option>
+                            <option value="3">Wednesday</option>
+                            <option value="4">Thursday</option>
+                            <option value="5">Friday</option>
+                            <option value="6">Saturday</option>
+                            <option value="0">Sunday</option>
+                        </select>
+                    </div>
+                    <div class="schedule-row">
+                        <label>Time:</label>
+                        <input type="time" id="weeklyTime" value="09:00" required>
+                    </div>
+                `;
+                break;
+
+            case 'cron':
+                configHTML = `
+                    <div class="schedule-row">
+                        <label>Cron Expression:</label>
+                        <input type="text" id="cronExpression" placeholder="0 9 * * 1-5" required>
+                        <small>Format: minute hour day month day-of-week</small>
+                    </div>
+                `;
+                break;
+        }
+
+        configContainer.innerHTML = configHTML;
+    }
+
+    handleTaskSubmit(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(e.target);
+        const taskData = {
+            id: Date.now(), // Simple ID generation
+            name: formData.get('taskName') || document.getElementById('taskName').value,
+            description: formData.get('taskDescription') || document.getElementById('taskDescription').value,
+            notebook: document.getElementById('taskNotebook').value,
+            scheduleType: document.getElementById('scheduleType').value,
+            enabled: document.getElementById('taskEnabled').checked,
+            created: new Date().toISOString(),
+            lastRun: null,
+            nextRun: null,
+            status: 'enabled'
+        };
+
+        // Get schedule configuration
+        taskData.schedule = this.getScheduleConfig(taskData.scheduleType);
+        taskData.nextRun = this.calculateNextRun(taskData.schedule, taskData.scheduleType);
+
+        // Add to tasks list
+        this.scheduledTasks.push(taskData);
+        this.saveScheduledTasks();
+        this.updateTasksList();
+        
+        this.hideTaskForm();
+        this.showNotification(`Task "${taskData.name}" created successfully!`, 'success');
+        this.addLog('success', `Created new task: ${taskData.name}`);
+    }
+
+    getScheduleConfig(scheduleType) {
+        const config = {};
+
+        switch (scheduleType) {
+            case 'interval':
+                config.value = parseInt(document.getElementById('intervalValue').value);
+                config.unit = document.getElementById('intervalUnit').value;
+                break;
+
+            case 'daily':
+                config.time = document.getElementById('dailyTime').value;
+                break;
+
+            case 'weekly':
+                config.day = parseInt(document.getElementById('weeklyDay').value);
+                config.time = document.getElementById('weeklyTime').value;
+                break;
+
+            case 'cron':
+                config.expression = document.getElementById('cronExpression').value;
+                break;
+        }
+
+        return config;
+    }
+
+    calculateNextRun(schedule, scheduleType) {
+        const now = new Date();
+        let nextRun = new Date();
+
+        switch (scheduleType) {
+            case 'interval':
+                const milliseconds = schedule.value * (schedule.unit === 'hours' ? 3600000 : 60000);
+                nextRun = new Date(now.getTime() + milliseconds);
+                break;
+
+            case 'daily':
+                const [hours, minutes] = schedule.time.split(':');
+                nextRun.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                if (nextRun <= now) {
+                    nextRun.setDate(nextRun.getDate() + 1);
+                }
+                break;
+
+            case 'weekly':
+                nextRun.setDate(now.getDate() + (schedule.day - now.getDay() + 7) % 7);
+                const [weekHours, weekMinutes] = schedule.time.split(':');
+                nextRun.setHours(parseInt(weekHours), parseInt(weekMinutes), 0, 0);
+                if (nextRun <= now) {
+                    nextRun.setDate(nextRun.getDate() + 7);
+                }
+                break;
+
+            case 'cron':
+                // Simple cron parsing - would need more sophisticated library in production
+                nextRun = new Date(now.getTime() + 3600000); // Default to 1 hour
+                break;
+        }
+
+        return nextRun.toISOString();
+    }
+
+    loadScheduledTasks() {
+        const saved = localStorage.getItem('scheduler-tasks');
+        if (saved) {
+            try {
+                this.scheduledTasks = JSON.parse(saved);
+            } catch (error) {
+                console.error('Error loading scheduled tasks:', error);
+                this.scheduledTasks = [];
+            }
+        }
+    }
+
+    saveScheduledTasks() {
+        localStorage.setItem('scheduler-tasks', JSON.stringify(this.scheduledTasks));
+    }
+
+    updateTasksList() {
+        const tasksList = document.getElementById('tasksList');
+        if (!tasksList) return;
+
+        if (this.scheduledTasks.length === 0) {
+            tasksList.innerHTML = `
+                <div class="empty-tasks">
+                    <i class="fas fa-clock"></i>
+                    <p>No scheduled tasks yet</p>
+                    <p class="text-muted">Create your first automated task to get started</p>
+                </div>
+            `;
+            return;
+        }
+
+        tasksList.innerHTML = this.scheduledTasks.map(task => `
+            <div class="task-item" data-task-id="${task.id}">
+                <div class="task-info">
+                    <div class="task-name">${task.name}</div>
+                    <div class="task-schedule">${this.formatSchedule(task.schedule, task.scheduleType)}</div>
+                    <div class="task-last-run">
+                        Last run: ${task.lastRun ? new Date(task.lastRun).toLocaleString() : 'Never'}
+                        | Next run: ${task.nextRun ? new Date(task.nextRun).toLocaleString() : 'Not scheduled'}
+                    </div>
+                </div>
+                <div class="task-status">
+                    <span class="status-badge ${task.enabled ? 'enabled' : 'disabled'}">
+                        ${task.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                    <div class="task-actions">
+                        <button class="btn-icon" onclick="app.toggleTask(${task.id})" title="Toggle task">
+                            <i class="fas fa-${task.enabled ? 'pause' : 'play'}"></i>
+                        </button>
+                        <button class="btn-icon" onclick="app.runTaskNow(${task.id})" title="Run now">
+                            <i class="fas fa-play-circle"></i>
+                        </button>
+                        <button class="btn-icon danger" onclick="app.deleteTask(${task.id})" title="Delete task">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    formatSchedule(schedule, scheduleType) {
+        switch (scheduleType) {
+            case 'interval':
+                return `Every ${schedule.value} ${schedule.unit}`;
+            case 'daily':
+                return `Daily at ${schedule.time}`;
+            case 'weekly':
+                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                return `${days[schedule.day]} at ${schedule.time}`;
+            case 'cron':
+                return `Cron: ${schedule.expression}`;
+            default:
+                return 'Unknown schedule';
+        }
+    }
+
+    toggleTask(taskId) {
+        const task = this.scheduledTasks.find(t => t.id === taskId);
+        if (task) {
+            task.enabled = !task.enabled;
+            task.status = task.enabled ? 'enabled' : 'disabled';
+            this.saveScheduledTasks();
+            this.updateTasksList();
+            this.addLog('info', `Task "${task.name}" ${task.enabled ? 'enabled' : 'disabled'}`);
+        }
+    }
+
+    async runTaskNow(taskId) {
+        const task = this.scheduledTasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        this.addLog('info', `Running task: ${task.name}`);
+        
+        try {
+            // Execute the task
+            await this.executeTask(task);
+            
+            // Update last run time
+            task.lastRun = new Date().toISOString();
+            task.nextRun = this.calculateNextRun(task.schedule, task.scheduleType);
+            
+            this.saveScheduledTasks();
+            this.updateTasksList();
+            
+            this.addLog('success', `Task "${task.name}" completed successfully`);
+            this.showNotification(`Task "${task.name}" executed successfully!`, 'success');
+            
+        } catch (error) {
+            this.addLog('error', `Task "${task.name}" failed: ${error.message}`);
+            this.showNotification(`Task "${task.name}" failed: ${error.message}`, 'error');
+        }
+    }
+
+    async executeTask(task) {
+        try {
+            // Load the file content
+            const response = await fetch(`http://localhost:5000/api/files/content?path=${encodeURIComponent(task.notebook)}`);
+            if (!response.ok) {
+                throw new Error(`Failed to load file: ${response.status}`);
+            }
+            
+            const content = await response.text();
+            
+            // Execute the content
+            if (task.notebook.endsWith('.ipynb')) {
+                // Execute notebook cells
+                const notebookData = JSON.parse(content);
+                for (const cellData of notebookData.cells) {
+                    if (cellData.cell_type === 'code' && cellData.source.length > 0) {
+                        const code = Array.isArray(cellData.source) ? cellData.source.join('') : cellData.source;
+                        await this.executeCode(code);
+                    }
+                }
+            } else {
+                // Execute Python file
+                await this.executeCode(content);
+            }
+        } catch (error) {
+            throw new Error(`Task execution failed: ${error.message}`);
+        }
+    }
+
+    async executeCode(code) {
+        const response = await fetch('http://localhost:5000/api/execute', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ code })
+        });
+
+        const result = await response.json();
+        if (!result.success) {
+            throw new Error(result.error || 'Code execution failed');
+        }
+        
+        return result;
+    }
+
+    deleteTask(taskId) {
+        if (confirm('Are you sure you want to delete this task?')) {
+            const taskIndex = this.scheduledTasks.findIndex(t => t.id === taskId);
+            if (taskIndex >= 0) {
+                const task = this.scheduledTasks[taskIndex];
+                this.scheduledTasks.splice(taskIndex, 1);
+                this.saveScheduledTasks();
+                this.updateTasksList();
+                this.addLog('warning', `Deleted task: ${task.name}`);
+                this.showNotification(`Task "${task.name}" deleted`, 'warning');
+            }
+        }
+    }
+
+    addLog(type, message) {
+        const logsContent = document.getElementById('logsContent');
+        if (!logsContent) return;
+
+        const logEntry = document.createElement('div');
+        logEntry.className = `log-entry ${type}`;
+        logEntry.innerHTML = `
+            <span class="log-time">${new Date().toLocaleTimeString()}</span>
+            <span class="log-message">${message}</span>
+        `;
+
+        logsContent.appendChild(logEntry);
+        logsContent.scrollTop = logsContent.scrollHeight;
+
+        // Keep only last 100 log entries
+        const entries = logsContent.querySelectorAll('.log-entry');
+        if (entries.length > 100) {
+            entries[0].remove();
+        }
+    }
+
+    clearLogs() {
+        const logsContent = document.getElementById('logsContent');
+        if (logsContent) {
+            logsContent.innerHTML = `
+                <div class="log-entry">
+                    <span class="log-time">${new Date().toLocaleTimeString()}</span>
+                    <span class="log-message">Logs cleared</span>
+                </div>
+            `;
+        }
+    }
+
+    refreshLogs() {
+        this.addLog('info', 'Logs refreshed');
+    }
+
+    // Start the scheduler background process
+    startScheduler() {
+        // Check for tasks to run every minute
+        setInterval(() => {
+            const now = new Date();
+            
+            this.scheduledTasks.forEach(task => {
+                if (task.enabled && task.nextRun && new Date(task.nextRun) <= now) {
+                    this.runTaskNow(task.id);
+                }
+            });
+        }, 60000); // Check every minute
+        
+        this.addLog('success', 'Scheduler started - checking for tasks every minute');
     }
 }
 

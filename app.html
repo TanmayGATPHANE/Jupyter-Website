@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jupyter Web Interface</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="static/css/styles.css?v=2">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        /* Force output styling to override cache */
+        .cell-output {
+            padding: 12px 16px !important;
+            background: #f8f9fa !important;
+            border-left: 3px solid #dee2e6 !important;
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', 'Courier New', monospace !important;
+            font-size: 13px !important;
+            line-height: 1.4 !important;
+            white-space: pre-wrap !important;
+            max-height: 300px !important;
+            overflow-y: auto !important;
+            color: #495057 !important;
+            margin-top: 12px !important;
+            margin-bottom: 12px !important;
+            border-radius: 0 4px 4px 0 !important;
+            display: block !important;
+            clear: both !important;
+            position: relative !important;
+            z-index: 1 !important;
+        }
+
+        .cell-output.error {
+            background: #fff5f5 !important;
+            color: #e53e3e !important;
+            border-left-color: #feb2b2 !important;
+        }
+
+        .cell-output.success {
+            background: #f0fff4 !important;
+            border-left-color: #68d391 !important;
+            color: #22543d !important;
+        }
+
+        /* Ensure proper spacing between code input and output */
+        .cell-input {
+            margin-bottom: 8px !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <i class="fas fa-cube"></i>
+                <h1>Jupyter Web</h1>
+            </div>
+            <nav class="nav-menu">
+                <a href="homepage.html" class="nav-btn home-btn">
+                    <i class="fas fa-home"></i>
+                    Home
+                </a>
+                <button class="nav-btn active" data-section="notebook">
+                    <i class="fas fa-book"></i>
+                    Notebook
+                </button>
+                <button class="nav-btn" data-section="files">
+                    <i class="fas fa-folder"></i>
+                    Files
+                </button>
+                <button class="nav-btn" data-section="scheduler">
+                    <i class="fas fa-clock"></i>
+                    Scheduler
+                </button>
+                <button class="nav-btn" data-section="terminal">
+                    <i class="fas fa-terminal"></i>
+                    Terminal
+                </button>
+            </nav>
+            <div class="header-actions">
+                <button class="btn-primary" id="saveNotebook">
+                    <i class="fas fa-save"></i>
+                    Save
+                </button>
+                <button class="btn-secondary" id="exportNotebook">
+                    <i class="fas fa-download"></i>
+                    Export
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <h3>Kernel</h3>
+                <div class="kernel-status">
+                    <span class="status-indicator idle"></span>
+                    <span>Python 3 (idle)</span>
+                </div>
+                <button class="btn-outline" id="restartKernel">
+                    <i class="fas fa-redo"></i>
+                    Restart Kernel
+                </button>
+            </div>
+            
+            <div class="sidebar-section">
+                <h3>Notebook Info</h3>
+                <div class="notebook-info">
+                    <p><strong>Name:</strong> <span id="notebookName">Untitled.ipynb</span></p>
+                    <p><strong>Cells:</strong> <span id="cellCount">0</span></p>
+                    <p><strong>Last Saved:</strong> <span id="lastSaved">Never</span></p>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Quick Actions</h3>
+                <button class="btn-outline" id="addCodeCell">
+                    <i class="fas fa-plus"></i>
+                    Add Code Cell
+                </button>
+                <button class="btn-outline" id="addMarkdownCell">
+                    <i class="fas fa-plus"></i>
+                    Add Markdown Cell
+                </button>
+                <button class="btn-outline" id="runAllCells">
+                    <i class="fas fa-play"></i>
+                    Run All Cells
+                </button>
+                <button class="btn-outline" id="clearAllOutputs">
+                    <i class="fas fa-eraser"></i>
+                    Clear All Outputs
+                </button>
+            </div>
+        </aside>
+
+        <!-- Notebook Section -->
+        <section class="content-section active" id="notebook-section">
+            <div class="notebook-toolbar">
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" id="insertCellAbove" title="Insert cell above">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <button class="toolbar-btn" id="insertCellBelow" title="Insert cell below">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <button class="toolbar-btn" id="deleteCell" title="Delete cell">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" id="runCell" title="Run cell">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <button class="toolbar-btn" id="stopCell" title="Stop execution">
+                        <i class="fas fa-stop"></i>
+                    </button>
+                </div>
+                <div class="toolbar-group">
+                    <select id="cellType" class="cell-type-selector">
+                        <option value="code">Code</option>
+                        <option value="markdown">Markdown</option>
+                        <option value="raw">Raw</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="notebook-container" id="notebookContainer">
+                <!-- Cells will be dynamically added here -->
+                <div class="empty-notebook">
+                    <i class="fas fa-book-open"></i>
+                    <h3>Welcome to Jupyter Web</h3>
+                    <p>Start by adding your first cell</p>
+                    <button class="btn-primary" id="addFirstCell">
+                        <i class="fas fa-plus"></i>
+                        Add Code Cell
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Files Section -->
+        <section class="content-section" id="files-section">
+            <div class="files-header">
+                <h2>File Browser</h2>
+                <button class="btn-primary" id="uploadFile">
+                    <i class="fas fa-upload"></i>
+                    Upload
+                </button>
+            </div>
+            <div class="file-tree">
+                <div class="folder">
+                    <i class="fas fa-folder"></i>
+                    <span>notebooks/</span>
+                </div>
+                <div class="folder">
+                    <i class="fas fa-folder"></i>
+                    <span>python_scripts/</span>
+                </div>
+                <div class="file">
+                    <i class="fas fa-file-code"></i>
+                    <span>example.py</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Terminal Section -->
+        <section class="content-section" id="terminal-section">
+            <div class="terminal-header">
+                <h2>Terminal</h2>
+                <button class="btn-primary" id="clearTerminal">
+                    <i class="fas fa-eraser"></i>
+                    Clear
+                </button>
+            </div>
+            <div class="terminal-container">
+                <div class="terminal-content" id="terminalContent">
+                    <div class="terminal-line">
+                        <span class="prompt">$</span>
+                        <span class="command">Welcome to Jupyter Web Terminal</span>
+                    </div>
+                </div>
+                <div class="terminal-input-line">
+                    <span class="prompt">$</span>
+                    <input type="text" class="terminal-input" id="terminalInput" placeholder="Enter command...">
+                </div>
+            </div>
+        </section>
+
+        <!-- Scheduler Section -->
+        <section class="content-section" id="scheduler-section">
+            <div class="scheduler-header">
+                <h2>Task Scheduler</h2>
+                <button class="btn-primary" id="createTask">
+                    <i class="fas fa-plus"></i>
+                    Create Task
+                </button>
+            </div>
+            
+            <div class="scheduler-content">
+                <!-- Task Creation Form -->
+                <div class="task-form-container" id="taskFormContainer" style="display: none;">
+                    <div class="task-form">
+                        <h3>Create Automated Task</h3>
+                        <form id="taskForm">
+                            <div class="form-group">
+                                <label for="taskName">Task Name</label>
+                                <input type="text" id="taskName" placeholder="e.g., Daily Excel Data Processing" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="taskDescription">Description</label>
+                                <textarea id="taskDescription" placeholder="Describe what this task does..." rows="3"></textarea>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="taskNotebook">Source Notebook/Script</label>
+                                <select id="taskNotebook" required>
+                                    <option value="">Select a file...</option>
+                                </select>
+                                <small>Choose the notebook or Python script to execute</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="scheduleType">Schedule Type</label>
+                                <select id="scheduleType" required>
+                                    <option value="interval">Interval (Repeat every X minutes/hours)</option>
+                                    <option value="daily">Daily at specific time</option>
+                                    <option value="weekly">Weekly on specific day</option>
+                                    <option value="cron">Custom (Cron expression)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="schedule-config" id="scheduleConfig">
+                                <!-- Dynamic schedule configuration will be inserted here -->
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="taskEnabled" checked>
+                                    Enable task immediately
+                                </label>
+                            </div>
+                            
+                            <div class="form-actions">
+                                <button type="submit" class="btn-primary">
+                                    <i class="fas fa-save"></i>
+                                    Create Task
+                                </button>
+                                <button type="button" class="btn-secondary" id="cancelTask">
+                                    <i class="fas fa-times"></i>
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- Task List -->
+                <div class="tasks-container">
+                    <h3>Scheduled Tasks</h3>
+                    <div class="tasks-list" id="tasksList">
+                        <div class="empty-tasks">
+                            <i class="fas fa-clock"></i>
+                            <p>No scheduled tasks yet</p>
+                            <p class="text-muted">Create your first automated task to get started</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Task Execution Logs -->
+                <div class="logs-container">
+                    <h3>Execution Logs</h3>
+                    <div class="logs-header">
+                        <button class="btn-secondary" id="clearLogs">
+                            <i class="fas fa-trash"></i>
+                            Clear Logs
+                        </button>
+                        <button class="btn-secondary" id="refreshLogs">
+                            <i class="fas fa-sync"></i>
+                            Refresh
+                        </button>
+                    </div>
+                    <div class="logs-content" id="logsContent">
+                        <div class="log-entry">
+                            <span class="log-time">System ready</span>
+                            <span class="log-message">Task scheduler initialized</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/markdown/markdown.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.10/marked.min.js"></script>
+    <script>
+        // Fallback if marked doesn't load
+        if (typeof marked === 'undefined') {
+            console.warn('Marked library failed to load from CDN, using fallback');
+            window.marked = {
+                parse: function(markdown) {
+                    // Basic markdown conversion fallback
+                    return markdown
+                        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                        .replace(/`(.*?)`/g, '<code>$1</code>')
+                        .replace(/\n/g, '<br>');
+                }
+            };
+        }
+    </script>
+    <script src="static/js/notebook.js"></script>
+    <script src="static/js/app.js"></script>
+</body>
+</html>

@@ -549,14 +549,13 @@ def list_files():
         for item in os.listdir(current_dir):
             item_path = os.path.join(current_dir, item)
             if os.path.isfile(item_path):
-                # Only include relevant file types
-                if item.endswith(('.py', '.ipynb', '.txt', '.md', '.json', '.html', '.css', '.js')):
-                    files.append({
-                        'name': item,
-                        'type': 'file',
-                        'path': item,
-                        'size': os.path.getsize(item_path)
-                    })
+                # Include all file types (no filtering)
+                files.append({
+                    'name': item,
+                    'type': 'file',
+                    'path': item,
+                    'size': os.path.getsize(item_path)
+                })
             elif os.path.isdir(item_path) and not item.startswith('.') and item not in ['__pycache__', 'venv']:
                 # Include directories (except hidden ones and common ignore patterns)
                 files.append({
@@ -742,6 +741,119 @@ def list_folder_contents():
             'folder': folder_path
         })
         
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# ================================
+# SCHEDULER ENDPOINTS
+# ================================
+
+@app.route('/api/scheduler/tasks', methods=['GET'])
+def get_scheduled_tasks():
+    """Get all scheduled tasks"""
+    try:
+        # In a real implementation, this would read from a database
+        # For now, we'll return a simple response
+        return jsonify({
+            'success': True,
+            'tasks': []
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/scheduler/tasks', methods=['POST'])
+def create_scheduled_task():
+    """Create a new scheduled task"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No task data provided'
+            }), 400
+        
+        # In a real implementation, this would save to a database
+        # For now, we'll just return success
+        return jsonify({
+            'success': True,
+            'message': 'Task created successfully',
+            'task_id': data.get('id', 'generated_id')
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/scheduler/execute', methods=['POST'])
+def execute_scheduled_task():
+    """Execute a scheduled task"""
+    try:
+        data = request.get_json()
+        if not data or 'file_path' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'No file path provided'
+            }), 400
+        
+        file_path = data['file_path']
+        
+        # Read the file content
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except FileNotFoundError:
+            return jsonify({
+                'success': False,
+                'error': f'File not found: {file_path}'
+            }), 404
+        
+        # Execute the content
+        if file_path.endswith('.ipynb'):
+            # Handle notebook execution
+            import json
+            notebook_data = json.loads(content)
+            results = []
+            
+            for cell in notebook_data.get('cells', []):
+                if cell.get('cell_type') == 'code':
+                    source = cell.get('source', [])
+                    if isinstance(source, list):
+                        code = ''.join(source)
+                    else:
+                        code = source
+                    
+                    if code.strip():
+                        result = execute_python_code(code)
+                        results.append(result)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Notebook executed successfully',
+                'results': results
+            })
+        
+        elif file_path.endswith('.py'):
+            # Handle Python file execution
+            result = execute_python_code(content)
+            return jsonify({
+                'success': True,
+                'message': 'Python file executed successfully',
+                'result': result
+            })
+        
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Unsupported file type'
+            }), 400
+            
     except Exception as e:
         return jsonify({
             'success': False,
